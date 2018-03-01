@@ -1,0 +1,128 @@
+clear;
+close all;
+clc;
+
+% The following main function implements a spectral method for learning
+% a binary latent variable model. The method is described in 
+% the paper:
+% Learning Binary Latent Variable Models: A Tensor Eigenpair Approach
+% Authors: Ariel Jaffe, Roi Weiss, Shai Carmi, Yuval Kluger and Shai Carmi
+% 
+% Acknowledgment: In the code we evaluate our method by measuring the
+% frobenius norm of two matrices, up to permuation. To find the permutation
+% that minimi
+
+
+%% initialize
+d = 6;                    % number of hidden nodes
+m = 30;                   % number of visible nodes
+n = 100000;                % number of independent samples
+num_runs = 50;
+denoising_method = 2;     % denoising method
+                          % 1 - matrix completion,
+                          % 2 - remove sigma,
+                          % 3 - Exact moments
+
+% go over noise level sigma
+sigma_vec = [0.01 0.1:0.1:0.8];
+
+% error analysis for binary rounding and
+res_als = zeros(num_runs,length(sigma_vec));
+res_spectral_ks = zeros(num_runs,length(sigma_vec));
+res_spectral_wls = zeros(num_runs,length(sigma_vec));
+res_oracle = zeros(num_runs,length(sigma_vec));
+
+% generate H params and W
+[W,mu,R_h] = generate_model_parameters(d,m);
+
+%% run
+for j = 1:num_runs
+    
+    % generate random hidden and visible samples
+    [H_bin,Z_c] = generate_hidden_visible_samples(W,mu,R_h,n);
+    
+    % sample random Gaussian noise
+    N = randn(size(Z_c));
+    
+    % Go over different noise levels
+    for sigma_idx = 1:length(sigma_vec)
+        fprintf('sigma idx %d - iteration %d\n',sigma_idx,j);
+        sigma = sigma_vec(sigma_idx);
+        Z = Z_c+sigma*N;
+        
+        % get error of oracle with full knowledge of H_bin
+        W_oracle = ((H_bin*H_bin')^-1)*H_bin*Z';
+        res_oracle(j,sigma_idx) = check_matrix_diff(W,W_oracle,0);
+                
+        % ALS iterations, random initialization        
+        [H_als,W_als,~] = ALS_iterations(Z,d,10^-2);
+        res_als(j,sigma_idx) = check_matrix_diff(W,W_als,0);
+                
+        % stage A of spectral method - compute candidate set
+        X =  compute_candidate_set(Z,d,sigma,denoising_method);
+        
+        % Filter via KS test        
+        [ev_idx_KS,score_KS] = ...
+            filter_eigenvectors_gaussian_model(X,d,Z,sigma,2);
+        
+        % get results for Kolmogorov-Smirnov test
+        W_spec_KS = pinv(diag(1./lambda(ev_idx_KS))*X_NCM(:,ev_idx_KS)'*M)';
+        [res_spectral_ks(j,sigma_idx),~] = check_matrix_diff(W,W_spec_KS,0);        
+        
+        % add weighted least square
+        W_spec_wls = single_step_wls(Z,W_spec_KS,sigma,d);
+        [res_spectral_wls(j,sigma_idx),~] = check_matrix_diff(W,W_spec_wls,0);
+        
+    end    
+end
+
+close all;
+fig = figure;
+FS = 16;
+j = 50;
+d = 6;
+m = 30;
+semilogy(sigma_vec,mean(res_oracle(1:j,:),1)/(m*d),'-.sk','linewidth',2,...
+    'markersize',12,'markerfacecolor', 'k');hold on;grid on;
+semilogy(sigma_vec,mean(res_slaw(1:j,:),1)/(m*d),'--or','linewidth',2,...
+    'markersize',12,'markerfacecolor', 'r');
+semilogy(sigma_vec,mean(res_em(1:j,:),1)/(m*d),'--x','Color', [0.5,0.5,0.5],'linewidth',2,...
+    'markersize',12,'markerfacecolor', [0.5,0.5,0.5]);
+semilogy(sigma_vec,mean(res_spectral_ks(1:j,:),1)/(m*d),':hb','linewidth',2,...
+    'markersize',12,'markerfacecolor', 'b');
+semilogy(sigma_vec,mean(res_spectral_ks_wls(1:j,:),1)/(m*d),'-dm','linewidth',2,...
+    'markersize',12,'markerfacecolor','m');
+legend({'Oracle','SHL','ALS','Spectral','Spectral+WLS'},...
+    'interpreter','latex','fontsize',FS,'location','southeast');
+fig.CurrentAxes.FontSize = FS;
+xticks([0.01 0.2:0.2:0.8]);
+xlabel('Noise level $\sigma$','interpreter','latex','fontsize',FS);
+ylabel('Error $\|W-\hat W\|_F^2\big/ (m\cdot d)$','interpreter','latex','fontsize',FS);
+print(fig,sprintf('../../manuscript/Arxiv/figures/fig_sigscan_n_%d_d_%d_m_%d.eps',n,d,m),'-depsc');
+
+fig = figure;
+FS = 16;
+j = 50;
+d = 6;
+m = 30;
+loglog(sigma_vec,mean(res_oracle(1:j,:),1)/(m*d),'-.sk','linewidth',2,...
+    'markersize',12,'markerfacecolor', 'k');hold on;grid on;
+loglog(sigma_vec,mean(res_slaw(1:j,:),1)/(m*d),'--or','linewidth',2,...
+    'markersize',12,'markerfacecolor', 'r');
+loglog(sigma_vec,mean(res_em(1:j,:),1)/(m*d),'--x','Color', [0.5,0.5,0.5],'linewidth',2,...
+    'markersize',12,'markerfacecolor', [0.5,0.5,0.5]);
+loglog(sigma_vec,mean(res_spectral_ks(1:j,:),1)/(m*d),':hb','linewidth',2,...
+    'markersize',12,'markerfacecolor', 'b');
+loglog(sigma_vec,mean(res_spectral_ks_wls(1:j,:),1)/(m*d),'-dm','linewidth',2,...
+    'markersize',12,'markerfacecolor','m');
+legend({'Oracle','SHL','ALS','Spectral','Spectral+WLS'},...
+    'interpreter','latex','fontsize',FS,'location','northwest');
+fig.CurrentAxes.FontSize = FS;
+xticks([0.01 0.1 0.2 0.4 0.8]);
+xlabel('Noise level $\sigma$','interpreter','latex','fontsize',FS);
+ylabel('Error $\|W-\hat W\|_F^2\big/ (m\cdot d)$','interpreter','latex','fontsize',FS);
+print(fig,sprintf('../../manuscript/Arxiv/figures/fig_sigscan_n_%d_d_%d_m_%d_log.eps',n,d,m),'-depsc');
+
+save(sprintf('./results/W_est_sigscan_f_%d_m_%d_n_%d_b.mat',d,m,n),'res_spectral_br',...
+    'res_spectral_ks','err_ctr_br','err_ctr_ks','res_slaw','res_em',...
+    'res_spectral_ls','res_spectral_em','W_fail','H_fail');

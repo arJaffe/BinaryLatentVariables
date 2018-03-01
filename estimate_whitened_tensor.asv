@@ -3,11 +3,13 @@ function T_w_ten = estimate_whitened_tensor(T_z_s,M_inv)
     % T_w_ten = estimate_whitened_tensor(T_z_s,M_inv)      
     %
     % Input: 
-    %        T_z_s - third order tensor of observed variables 
-    %        M_inv - pseudo inverse of whitening tensor
+    %        T_z_s - thir 
+    %        Z - Matrix of n samples from the binary latent model    
+    %        sigma - noise level
+    %        nc - number of candidate binary vectors for each sample
     %
     % Output:
-    %        T_w_ten - whitened tensor
+    %        W_wls - improved estimate
     %
     % Written by Ariel Jaffe, Roi Weiss, Shai Carmi, Yuval Kluger
     % and Boaz Nadler, 2018
